@@ -3,11 +3,12 @@ import os
 import pathlib
 import shutil
 import sys
+import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
 from pydoc import importfile
 from types import ModuleType
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 user_config_dir = pathlib.Path(f"{os.environ['HOME']}/.config/codetemplates")
 ignored = set(["__pycache__", "node_modules", "__main__.py", "__init__.py"])
@@ -128,12 +129,94 @@ def load_user_config():
     return UserConfig(templates_dir_path=templates_dir_path)
 
 
+@dataclass
+class PipIssue:
+    name: str
+
+    def resolve(self):
+        os.system(f"pip install {self.name}")
+
+    def __str__(self):
+        return self.name
+
+
+def pip_installed_packages() -> Set[str]:
+    return set(
+        [
+            a.strip().split(" ")[0].lower()
+            for a in subprocess.run(["pip", "list"], capture_output=True)
+            .stdout.decode()
+            .split("\n")
+            if a != ""
+        ]
+    )
+
+
+def static_local(gen_statics):
+    def dec(fun):
+        statics = None
+
+        def wrapper(*args, **kwargs):
+            nonlocal statics
+            if statics is None:
+                statics = gen_statics()
+            return fun(*args, **kwargs, **statics)
+
+        return wrapper
+
+    return dec
+
+
+@static_local(lambda: {"installed_packs": pip_installed_packages()})
+def pip_is_req_installed(req: str, installed_packs):
+    return req in installed_packs
+
+
+def pip_reqs(reqs):
+    issues = []
+    for req in reqs:
+        i = pip_is_req_installed(req)
+        if not i:
+            issues.append(PipIssue(req))
+    return issues
+
+
 def new_project_with_template(t: TemplateMetaInfo, where: pathlib.Path):
     if t.kind == TemplateKind.PLAIN_DIR:
         shutil.copytree(t.full_path, where)
     elif t.kind == TemplateKind.PYTHON_MODULE:
+        # check if requirements are installed
+        requirements = get_template_module_prop(
+            t.mod, "requirements", required=False, default_value=None
+        )
+        handlers = {
+            "pip": pip_reqs,
+        }
+        dep_issues = []
+        if requirements is not None:
+            for rkind, rs in requirements.items():
+                h = handlers.get(rkind, None)
+                if h is None:
+                    raise Exception(
+                        f'Invalid requirement specified: unknown requirement specifier "{rkind}"'
+                    )
+                dep_issues += h(rs)
+        if len(dep_issues) != 0:
+            # unresolved dependency issues
+            adj = "are not installed" if len(dep_issues) > 1 else "is not installed"
+            print(
+                f"There are unresolved dependency issues: {', '.join(map(str, dep_issues))} {adj}."
+            )
+            yn = input("Install required packages (y/n)? ")
+            if yn.lower() == "y":
+                print("Trying to automatically install dependencies... ")
+                for issue in dep_issues:
+                    print("resolving issue", issue)
+                    issue.resolve()
+                print("done")
+            else:
+                return None
         res = t.mod.new_project(where)
-        print(res)
 
 
 SearchPath = List[pathlib.Path]
