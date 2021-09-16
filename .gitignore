@@ -1,2 +1,6 @@
 __pycache__
 venv
+.eggs
+build/
+*.egg-info
+dist
