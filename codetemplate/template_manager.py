@@ -1,17 +1,17 @@
-import os
-import sys
-import pathlib
 import json
+import os
+import pathlib
 import shutil
+import sys
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
-from types import ModuleType
 from enum import Enum
 from pydoc import importfile
+from types import ModuleType
+from typing import Dict, List, Optional
 
-dir_path = pathlib.Path(f"{os.environ['HOME']}/.config/codetemplates")
-templates_dir_path = pathlib.Path(f"{dir_path}/templates")
+user_config_dir = pathlib.Path(f"{os.environ['HOME']}/.config/codetemplates")
 ignored = set(["__pycache__", "node_modules", "__main__.py", "__init__.py"])
+
 
 class TemplateKind(Enum):
     PLAIN_DIR = 0
@@ -28,21 +28,25 @@ class TemplateMetaInfo:
     kind: TemplateKind
     name: str
     full_path: pathlib.Path
-    dir_config: DirConfig = None
-    mod: ModuleType = None
-    description: str = None
+    dir_config: Optional[DirConfig] = None
+    mod: Optional[ModuleType] = None
+    description: Optional[str] = None
 
 
 @dataclass
 class UserConfig:
-    templates: List[TemplateMetaInfo]
+    templates_dir_path: pathlib.Path
 
 
 def load_dir_config(dir_config_path: pathlib.Path):
     with open(dir_config_path, "r") as f:
         parsed = json.load(f)
-    if not "description" in parsed:
-        print("Invalid directory config at \"{dir_config_path}\": No description specified", file=sys.stderr)
+    if "description" not in parsed:
+        print(
+            'Invalid directory config at "{dir_config_path}": \
+                    No description specified',
+            file=sys.stderr,
+        )
     return DirConfig(**parsed)
 
 
@@ -52,7 +56,8 @@ class MissingRequiredModuleExport(Exception):
         self.key = key
 
     def __str__(self):
-        return f"Failed to load python module template. Required export symbol is not defined: \"{self.key}\""
+        return f'Failed to load python module template. Required \
+                export symbol is not defined: "{self.key}"'
 
 
 class InvalidModuleName(Exception):
@@ -60,7 +65,8 @@ class InvalidModuleName(Exception):
         self.path = path
 
     def __str__(self):
-        return f"This utility can only parse template modules of .py extension or plain directories. Found file \"{self.path}\""
+        return f'This utility can only parse template modules of \
+                .py extension or plain directories. Found file "{self.path}"'
 
 
 def get_template_module_prop(mod, key, required=True):
@@ -78,7 +84,9 @@ def import_py_template(tpath: pathlib.Path):
     mod = importfile(str(tpath))
     description = get_template_module_prop(mod, "description")
     kind = TemplateKind.PYTHON_MODULE
-    tmeta = TemplateMetaInfo(kind=kind, full_path=tpath, name=str(name), mod=mod, description=description)
+    tmeta = TemplateMetaInfo(
+        kind=kind, full_path=tpath, name=str(name), mod=mod, description=description
+    )
     return tmeta
 
 
@@ -107,26 +115,10 @@ def should_ignore_template_name(tpath: pathlib.Path):
 
 
 def load_user_config():
-    dir_path.mkdir(parents=True, exist_ok=True)
+    user_config_dir.mkdir(parents=True, exist_ok=True)
+    templates_dir_path = pathlib.Path(f"{user_config_dir}/templates")
     templates_dir_path.mkdir(parents=True, exist_ok=True)
-    templates = []
-    for tfile in os.listdir(templates_dir_path):
-        tpath = pathlib.Path(templates_dir_path, tfile)
-        if should_ignore_template_name(tpath):
-            continue
-        tmeta = load_template_from_path(tpath)
-        templates.append(tmeta)
-    return UserConfig(templates=templates)
-
-
-def load_template(template: str):
-    dtp = pathlib.Path(templates_dir_path, template)
-    if os.path.exists(dtp):
-        return load_template_from_path(dtp)
-    pytp = pathlib.Path(templates_dir_path, f"{template}.py")
-    if os.path.exists(pytp):
-        return load_template_from_path(pytp)
-    return None
+    return UserConfig(templates_dir_path=templates_dir_path)
 
 
 def new_project_with_template(t: TemplateMetaInfo, where: pathlib.Path):
@@ -134,23 +126,73 @@ def new_project_with_template(t: TemplateMetaInfo, where: pathlib.Path):
         shutil.copytree(t.full_path, where)
     elif t.kind == TemplateKind.PYTHON_MODULE:
         res = t.mod.new_project(where)
+        print(res)
+
+
+SearchPath = List[pathlib.Path]
+
+
+def load_templates_from(search_path: SearchPath):
+    templates = []
+    for dp in search_path:
+        for tfile in os.listdir(dp):
+            tpath = pathlib.Path(dp, tfile)
+            if should_ignore_template_name(tpath):
+                continue
+            tmeta = load_template_from_path(tpath)
+            templates.append(tmeta)
+    return templates
 
 
 class CodeTemplateManager:
-    templates = []
+    search_path: SearchPath = []
+    config: UserConfig
 
     def __init__(self):
         self.config = load_user_config()
-        self.templates = self.config.templates
+        self.search_path.append(self.config.templates_dir_path)
+        script_dir = pathlib.Path(__file__).parent.resolve()
+        self.search_path.append(pathlib.Path(script_dir, "../templates").resolve())
+        print(self.search_path)
 
-    def search(self, what):
-        print(f"Searching \"{what}\"")
+    def search(self, what: str):
+        templates = load_templates_from(self.search_path)
         entries = []
-        for t in self.templates:
+        for t in templates:
             what = what.lower()
             desc = t.description if t.description else ""
             if what in t.name.lower() or what in desc.lower():
                 entries.append(t)
+        return entries
+
+    def load_template(self, template: str):
+        for dp in self.search_path:
+            dtp = pathlib.Path(dp, template)
+            if os.path.exists(dtp):
+                return load_template_from_path(dtp)
+            pytp = pathlib.Path(dp, f"{template}.py")
+            if os.path.exists(pytp):
+                return load_template_from_path(pytp)
+        return None
+
+    def new(self, template, where):
+        t = self.load_template(template)
+        if t is None:
+            return False
+        new_project_with_template(t, where)
+        return True
+
+    def init(self, template):
+        return True
+
+
+class CodeTemplateManagerCLI:
+    def __init__(self):
+        self.manager = CodeTemplateManager()
+
+    def search(self, what):
+        print(f'Searching "{what}"')
+        entries = self.manager.search(what)
         if len(entries) == 0:
             print("Nothing found")
             return
@@ -165,12 +207,10 @@ class CodeTemplateManager:
         print(f"Total templates found: {len(entries)}")
 
     def new(self, template, where):
-        print(f"Creating new project with template \"{template}\"")
-        t = load_template(template)
-        if t is None:
-            print(f"Failed to load template \"{template}\"")
-            return
-        new_project_with_template(t, where)
+        print(f'Creating new project with template "{template}"')
+        if not self.manager.new(template, where):
+            print(f'Failed to load template "{template}"')
 
     def init(self, template):
-        print(f"Initializing project with template \"{template}\"")
+        print(f'Initializing project with template "{template}"')
+        self.manager.init(template)

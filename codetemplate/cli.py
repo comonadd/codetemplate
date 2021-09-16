@@ -1,6 +1,6 @@
-import codetemplate
 import fire
+from codetemplate.template_manager import CodeTemplateManagerCLI
 
 
 def main():
-    fire.Fire(codetemplate.CodeTemplateManager)
+    fire.Fire(CodeTemplateManagerCLI)
