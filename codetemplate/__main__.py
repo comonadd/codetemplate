@@ -1,4 +1,4 @@
-import codetemplate
-import fire
+from codetemplate.cli import main
 
-fire.Fire(codetemplate.CodeTemplateManager)
+if __name__ == "__main__":
+    main()
