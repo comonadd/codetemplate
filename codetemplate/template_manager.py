@@ -31,6 +31,7 @@ class TemplateMetaInfo:
     dir_config: Optional[DirConfig] = None
     mod: Optional[ModuleType] = None
     description: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -69,9 +70,9 @@ class InvalidModuleName(Exception):
                 .py extension or plain directories. Found file "{self.path}"'
 
 
-def get_template_module_prop(mod, key, required=True):
-    val = mod.__dict__.get(key, None)
-    if val is None:
+def get_template_module_prop(mod, key, required=True, default_value=None):
+    val = mod.__dict__.get(key, default_value)
+    if val is None and required:
         raise MissingRequiredModuleExport(mod, key)
     return val
 
@@ -83,9 +84,15 @@ def import_py_template(tpath: pathlib.Path):
         raise InvalidModuleName(tpath)
     mod = importfile(str(tpath))
     description = get_template_module_prop(mod, "description")
+    tags = get_template_module_prop(mod, "tags", required=False, default_value=[])
     kind = TemplateKind.PYTHON_MODULE
     tmeta = TemplateMetaInfo(
-        kind=kind, full_path=tpath, name=str(name), mod=mod, description=description
+        kind=kind,
+        full_path=tpath,
+        name=str(name),
+        mod=mod,
+        description=description,
+        tags=tags,
     )
     return tmeta
 
@@ -161,7 +168,11 @@ class CodeTemplateManager:
         for t in templates:
             what = what.lower()
             desc = t.description if t.description else ""
-            if what in t.name.lower() or what in desc.lower():
+            if (
+                what in t.name.lower()
+                or what in desc.lower()
+                or any([what in t for t in t.tags])
+            ):
                 entries.append(t)
         return entries
 
