@@ -1,0 +1,51 @@
+import path from "path";
+import { terser } from "rollup-plugin-terser";
+import resolve from "rollup-plugin-node-resolve";
+import commonjs from "@rollup/plugin-commonjs";
+import del from "del";
+import typescript from "@rollup/plugin-typescript";
+
+const SRC = path.resolve(__dirname, "$source_dir_path");
+const BUILD = path.resolve(__dirname, "build");
+
+export default async function ({ watch }) {
+  await del(BUILD);
+
+  const builds = [];
+
+  builds.push({
+    plugins: [typescript()],
+    input: [path.resolve(SRC, "$entry_file_name"],
+    output: [
+      {
+        dir: BUILD,
+        format: "esm",
+        entryFileNames: "[name]-esm.js",
+        chunkFileNames: "[name]-esm.js",
+      },
+      {
+        dir: BUILD,
+        format: "cjs",
+        entryFileNames: "[name]-cjs.js",
+        chunkFileNames: "[name]-cjs.js",
+      },
+    ],
+  });
+
+  builds.push({
+    input: path.resolve(BUILD, "$out_prefix-cjs.js"),
+    plugins: [
+      terser({
+        compress: { ecma: 2019 },
+      }),
+    ],
+    output: {
+      file: path.resolve(BUILD, "$out_prefix.min.js"),
+      format: "iife",
+      esModule: false,
+      name: "IDBORM",
+    },
+  });
+
+  return builds;
+}

@@ -17,6 +17,7 @@ ignored = set(["__pycache__", "node_modules", "__main__.py", "__init__.py"])
 class TemplateKind(Enum):
     PLAIN_DIR = 0
     PYTHON_MODULE = 1
+    PYTHON_MODULE_DIR = 2
 
 
 @dataclass
@@ -78,15 +79,20 @@ def get_template_module_prop(mod, key, required=True, default_value=None):
     return val
 
 
-def import_py_template(tpath: pathlib.Path):
+def import_py_template(tpath: pathlib.Path, with_resources=False):
     name, ext = os.path.splitext(tpath)
+    if with_resources:
+        tpath = os.path.join(tpath, "codetemplate.py")
+        ext = ".py"
     name = os.path.basename(name)
     if ext != ".py":
         raise InvalidModuleName(tpath)
     mod = importfile(str(tpath))
     description = get_template_module_prop(mod, "description")
     tags = get_template_module_prop(mod, "tags", required=False, default_value=[])
-    kind = TemplateKind.PYTHON_MODULE
+    kind = (
+        TemplateKind.PYTHON_MODULE_DIR if with_resources else TemplateKind.PYTHON_MODULE
+    )
     tmeta = TemplateMetaInfo(
         kind=kind,
         full_path=tpath,
@@ -98,8 +104,16 @@ def import_py_template(tpath: pathlib.Path):
     return tmeta
 
 
+def import_py_dir_template(tpath: pathlib.Path):
+    return import_py_template(tpath, with_resources=True)
+
+
 def load_template_from_path(tpath: pathlib.Path):
     if os.path.isdir(tpath):
+        py_mod_path = os.path.join(tpath, "codetemplate.py")
+        is_python_anyway = os.path.exists(py_mod_path)
+        if is_python_anyway:
+            return import_py_dir_template(tpath)
         # Plain directory
         kind = TemplateKind.PLAIN_DIR
         name = os.path.basename(tpath)
@@ -172,6 +186,11 @@ def pip_is_req_installed(req: str, installed_packs):
     return req in installed_packs
 
 
+@static_local(lambda: {"installed_packs": npm_installed_packages()})
+def pip_is_req_installed(req: str, installed_packs):
+    return req in installed_packs
+
+
 def pip_reqs(reqs):
     issues = []
     for req in reqs:
@@ -181,42 +200,64 @@ def pip_reqs(reqs):
     return issues
 
 
+def npm_reqs(reqs):
+    issues = []
+    for req in reqs:
+        i = npm_is_req_installed(req)
+        if not i:
+            issues.append(NpmIssue(req))
+    return issues
+
+
+def py_template_new_project(t: TemplateMetaInfo, where: pathlib.Path):
+    # check if requirements are satisfied
+    requirements = get_template_module_prop(
+        t.mod, "requirements", required=False, default_value=None
+    )
+    handlers = {
+        "pip": pip_reqs,
+        "npm": npm_reqs,
+    }
+    dep_issues = []
+    if requirements is not None:
+        for rkind, rs in requirements.items():
+            h = handlers.get(rkind, None)
+            if h is None:
+                raise Exception(
+                    f'Invalid requirement specified: unknown requirement specifier "{rkind}"'
+                )
+            dep_issues += h(rs)
+    if len(dep_issues) != 0:
+        # unresolved dependency issues
+        adj = "are not installed" if len(dep_issues) > 1 else "is not installed"
+        print(
+            f"There are unresolved dependency issues: {', '.join(map(str, dep_issues))} {adj}."
+        )
+        yn = input("Install required packages (y/n)? ")
+        if yn.lower() == "y":
+            print("Trying to automatically install dependencies... ")
+            for issue in dep_issues:
+                print("resolving issue", issue)
+                issue.resolve()
+            print("done")
+        else:
+            return None
+    if t.kind == TemplateKind.PYTHON_MODULE:
+        res = t.mod.new_project(where)
+    elif t.kind == TemplateKind.PYTHON_MODULE_DIR:
+        resources_dir = os.path.join(os.path.dirname(t.full_path), "resources")
+        res = t.mod.new_project(where, resources_dir=resources_dir)
+    if not res:
+        print("Failed to create a new project", file=sys.stderr)
+
+
 def new_project_with_template(t: TemplateMetaInfo, where: pathlib.Path):
     if t.kind == TemplateKind.PLAIN_DIR:
         shutil.copytree(t.full_path, where)
-    elif t.kind == TemplateKind.PYTHON_MODULE:
-        # check if requirements are installed
-        requirements = get_template_module_prop(
-            t.mod, "requirements", required=False, default_value=None
-        )
-        handlers = {
-            "pip": pip_reqs,
-        }
-        dep_issues = []
-        if requirements is not None:
-            for rkind, rs in requirements.items():
-                h = handlers.get(rkind, None)
-                if h is None:
-                    raise Exception(
-                        f'Invalid requirement specified: unknown requirement specifier "{rkind}"'
-                    )
-                dep_issues += h(rs)
-        if len(dep_issues) != 0:
-            # unresolved dependency issues
-            adj = "are not installed" if len(dep_issues) > 1 else "is not installed"
-            print(
-                f"There are unresolved dependency issues: {', '.join(map(str, dep_issues))} {adj}."
-            )
-            yn = input("Install required packages (y/n)? ")
-            if yn.lower() == "y":
-                print("Trying to automatically install dependencies... ")
-                for issue in dep_issues:
-                    print("resolving issue", issue)
-                    issue.resolve()
-                print("done")
-            else:
-                return None
-        res = t.mod.new_project(where)
+    elif (
+        t.kind == TemplateKind.PYTHON_MODULE or t.kind == TemplateKind.PYTHON_MODULE_DIR
+    ):
+        py_template_new_project(t, where)
 
 
 SearchPath = List[pathlib.Path]
@@ -243,7 +284,6 @@ class CodeTemplateManager:
         self.search_path.append(self.config.templates_dir_path)
         script_dir = pathlib.Path(__file__).parent.resolve()
         self.search_path.append(pathlib.Path(script_dir, "../templates").resolve())
-        print(self.search_path)
 
     def search(self, what: str):
         templates = load_templates_from(self.search_path)
@@ -298,6 +338,8 @@ class CodeTemplateManagerCLI:
                     print(f"[dir] {entry.name}")
             elif entry.kind == TemplateKind.PYTHON_MODULE:
                 print(f"[python] {entry.name}: {entry.description}")
+            elif entry.kind == TemplateKind.PYTHON_MODULE_DIR:
+                print(f"[python-dir] {entry.name}: {entry.description}")
         print(f"Total templates found: {len(entries)}")
 
     def new(self, template, where):

@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "target": "es6",
+    "jsx": "react",
+    "module": "es6",
+    "sourceMap": true,
+    "moduleResolution": "node",
+    "noImplicitAny": true,
+    "preserveConstEnums": true,
+    "rootDir": "$source_dir_path",
+    "keyofStringsOnly": true,
+    "lib": ["DOM", "es2020"],
+    "declaration": true,
+    "outDir": "build",
+    "downlevelIteration": true,
+    "paths": {
+      "~/*": ["./$source_dir_path/*"]
+    }
+  },
+  "include": ["$source_dir_path/**/*.ts", "$source_dir_path/**/*.tsx"],
+  "exclude": ["node_modules"]
+}
