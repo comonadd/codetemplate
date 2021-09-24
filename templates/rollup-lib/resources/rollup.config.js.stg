@@ -5,7 +5,7 @@ import commonjs from "@rollup/plugin-commonjs";
 import del from "del";
 import typescript from "@rollup/plugin-typescript";
 
-const SRC = path.resolve(__dirname, "$source_dir_path");
+const SRC = path.resolve(__dirname, "{% source_dir_path %}");
 const BUILD = path.resolve(__dirname, "build");
 
 export default async function ({ watch }) {
@@ -15,7 +15,7 @@ export default async function ({ watch }) {
 
   builds.push({
     plugins: [typescript()],
-    input: [path.resolve(SRC, "$entry_file_name"],
+    input: [path.resolve(SRC, "{% entry_file_name %}")],
     output: [
       {
         dir: BUILD,
@@ -33,14 +33,14 @@ export default async function ({ watch }) {
   });
 
   builds.push({
-    input: path.resolve(BUILD, "$out_prefix-cjs.js"),
+    input: path.resolve(BUILD, "{% out_prefix %}-cjs.js"),
     plugins: [
       terser({
         compress: { ecma: 2019 },
       }),
     ],
     output: {
-      file: path.resolve(BUILD, "$out_prefix.min.js"),
+      file: path.resolve(BUILD, "{% out_prefix %}.min.js"),
       format: "iife",
       esModule: false,
       name: "IDBORM",
