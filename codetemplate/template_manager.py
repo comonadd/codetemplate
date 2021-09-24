@@ -11,7 +11,7 @@ from types import ModuleType
 from typing import Dict, List, Optional, Set
 from stemplates import render_template
 
-user_config_dir = pathlib.Path(f"{os.environ['HOME']}/.config/codetemplates")
+user_config_dir = pathlib.Path(f"{os.environ['HOME']}/.config/codetemplate")
 ignored = set(["__pycache__", "node_modules", "__main__.py", "__init__.py"])
 
 
