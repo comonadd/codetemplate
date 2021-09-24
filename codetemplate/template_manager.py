@@ -9,6 +9,7 @@ from enum import Enum
 from pydoc import importfile
 from types import ModuleType
 from typing import Dict, List, Optional, Set
+from stemplates import render_template
 
 user_config_dir = pathlib.Path(f"{os.environ['HOME']}/.config/codetemplates")
 ignored = set(["__pycache__", "node_modules", "__main__.py", "__init__.py"])
@@ -209,6 +210,36 @@ def npm_reqs(reqs):
     return issues
 
 
+class Helpers:
+    resources_dir: Optional[str]
+
+    def __init__(self, resources_dir: str):
+        self.resources_dir = resources_dir
+
+    def res_path(self, fname: str):
+        return os.path.join(self.resources_dir, fname)
+
+    def copy_resource(self, fin: str, fout: str):
+        finp = self.res_path(fin)
+        if os.path.isfile(finp):
+            shutil.copy(finp, fout)
+        else:
+            shutil.copytree(finp, fout)
+
+    def ask_boolean(self, text: str) -> bool:
+        return input(f"{text} ").lower() == "y"
+
+    def ask_string(self, text: str) -> str:
+        return input(text)
+
+    def open_stg_and_write_with(self, fin, fout, **kwargs):
+        with open(fin, "r") as rc:
+            tt = rc.read()
+            tt = render_template(tt, **kwargs)
+        with open(fout, "w") as ww:
+            ww.write(tt)
+
+
 def py_template_new_project(t: TemplateMetaInfo, where: pathlib.Path):
     # check if requirements are satisfied
     requirements = get_template_module_prop(
@@ -243,10 +274,12 @@ def py_template_new_project(t: TemplateMetaInfo, where: pathlib.Path):
         else:
             return None
     if t.kind == TemplateKind.PYTHON_MODULE:
-        res = t.mod.new_project(where)
+        h = Helpers(None)
+        res = t.mod.new_project(where, h)
     elif t.kind == TemplateKind.PYTHON_MODULE_DIR:
         resources_dir = os.path.join(os.path.dirname(t.full_path), "resources")
-        res = t.mod.new_project(where, resources_dir=resources_dir)
+        h = Helpers(resources_dir)
+        res = t.mod.new_project(where, resources_dir, h)
     if not res:
         print("Failed to create a new project", file=sys.stderr)
 

@@ -4,49 +4,22 @@ import shutil
 import json
 from stemplates import render_template
 
-
 # Template
 description = "Rollup Library"
 tags = ["javascript", "js", "library", "browser", "web", "rollup", "react", "npm"]
 
 
-def ask_boolean(text: str) -> bool:
-    return input(f"{text} ").lower() == "y"
-
-
-def ask_string(text: str) -> str:
-    return input(text)
-
-
-def open_stg_and_write_with(fin, fout, **kwargs):
-    with open(fin, "r") as rc:
-        tt = rc.read()
-        tt = render_template(tt, **kwargs)
-    with open(fout, "w") as ww:
-        ww.write(tt)
-
-
 # TODO: Browser tests support using jest-puppeteer
-def new_project(where: pathlib.Path, resources_dir: pathlib.Path):
+def new_project(where: pathlib.Path, resources_dir: pathlib.Path, h):
     if os.path.exists(where):
         shutil.rmtree(where)
     os.mkdir(where)
     os.chdir(where)
 
-    def res_path(fname: str):
-        return os.path.join(resources_dir, fname)
-
-    def copy_resource(fin: str, fout: str):
-        finp = res_path(fin)
-        if os.path.isfile(finp):
-            shutil.copy(finp, fout)
-        else:
-            shutil.copytree(finp, fout)
-
     # Setup npm and dependencies
     os.system("npm init")
-    ts_enabled = ask_boolean("Set up TypeScript?")
-    tests_enabled = ask_boolean("Set up tests?")
+    ts_enabled = h.ask_boolean("Set up TypeScript?")
+    tests_enabled = h.ask_boolean("Set up tests?")
     deps = [
         "rollup",
         "@rollup/plugin-commonjs",
@@ -66,8 +39,8 @@ def new_project(where: pathlib.Path, resources_dir: pathlib.Path):
     os.system(f"npm install {deps_s}")
 
     # Create directories
-    src_dir = ask_string("Directory name for library source code: ")
-    entry_file_name = ask_string("Entry file name: ")
+    src_dir = h.ask_string("Directory name for library source code: ")
+    entry_file_name = h.ask_string("Entry file name: ")
     os.mkdir(src_dir)
 
     # Modify package.json
@@ -95,7 +68,7 @@ def new_project(where: pathlib.Path, resources_dir: pathlib.Path):
         json.dump(package_json, pf, indent=4)
 
     # Create rollup config
-    open_stg_and_write_with(
+    h.open_stg_and_write_with(
         fin=res_path("rollup.config.js.stg"),
         fout="rollup.config.js",
         source_dir_path=src_dir,
@@ -103,11 +76,11 @@ def new_project(where: pathlib.Path, resources_dir: pathlib.Path):
         out_prefix=out_prefix,
     )
     entry_file_path = os.path.join(src_dir, entry_file_name)
-    copy_resource("entry-file.js", entry_file_path)
+    h.copy_resource("entry-file.js", entry_file_path)
 
     # tsconfig.json
     if ts_enabled:
-        open_stg_and_write_with(
+        h.open_stg_and_write_with(
             fin=res_path("tsconfig.json.stg"),
             fout="tsconfig.json",
             source_dir_path=src_dir,
@@ -115,9 +88,9 @@ def new_project(where: pathlib.Path, resources_dir: pathlib.Path):
 
     # Test directory
     if ts_enabled and tests_enabled:
-        copy_resource("jest.config-ts.js", "jest.config.js")
-        copy_resource("test-ts", "test")
+        h.copy_resource("jest.config-ts.js", "jest.config.js")
+        h.copy_resource("test-ts", "test")
     elif tests_enabled:
-        copy_resource("test-js", "test")
+        h.copy_resource("test-js", "test")
 
     return True
